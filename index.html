@@ -1,70 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WeaverLoops 1.06</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WeaverLoops 1.08</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #waveformCanvas { border: 1px solid #ccc; width: 100%; max-width: 800px; }
+    #controls { display: none; margin-top: 10px; }
+    #errorMessage { color: red; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>WeaverLoops 1.07</h1>
-        <div class="step">
-            <h2>1. Upload Audio</h2>
-            <input type="file" id="audioFile" accept="audio/wav,audio/mpeg,audio/aiff,.wav,.mp3,.aif,.aiff">
-        </div>
-        <div class="step hidden" id="editStep">
-            <h2>2. Edit Audio</h2>
-            <canvas id="waveform"></canvas>
-            <div class="slider-container">
-                <input type="range" id="playheadSlider" min="0" max="1" step="0.01">
-                <span id="playheadTime">0.00s</span>
-            </div>
-            <div class="controls">
-                <button id="playBtn">PLAY</button>
-                <button id="pauseBtn">PAUSE</button>
-                <button id="startBtn">START</button>
-                <button id="endBtn">END</button>
-                <button id="deleteBtn">CROP LOOP</button>
-            </div>
-        </div>
-        <div class="step hidden" id="crossfadeStep">
-            <h2>3. Crossfade Settings</h2>
-            <label for="crossfadeSelect">Crossfade Duration (seconds):</label>
-            <select id="crossfadeSelect">
-                <option value="1">1s</option>
-                <option value="2">2s</option>
-                <option value="5">5s</option>
-                <option value="8">8s</option>
-                <option value="10">10s</option>
-            </select>
-            <button id="previewBtn">ADD CROSSFADE</button>
-        </div>
-        <div class="step hidden" id="previewStep">
-            <h2>Preview Loop</h2>
-            <p>Waveform shows the looped audio with crossfade applied.</p>
-            <canvas id="previewWaveform"></canvas>
-            <div class="slider-container">
-                <input type="range" id="previewPlayheadSlider" min="0" max="1" step="0.01">
-                <span id="previewPlayheadTime">0.00s</span>
-            </div>
-            <div class="controls">
-                <button id="previewPlayBtn">PLAY</button>
-                <button id="previewPauseBtn">PAUSE</button>
-                <button id="previewLoopBtn">PREVIEW LOOP</button>
-            </div>
-        </div>
-        <div class="step hidden" id="downloadStep">
-            <h2>4. Download Loop</h2>
-            <p>Note: If your browser doesn't support choosing a save location, the file will save to your Downloads folder.</p>
-            <button id="exportBtn">DOWNLOAD LOOP</button>
-        </div>
-        <div id="progress" class="hidden">
-            <div class="spinner"></div>
-            <p id="progressMessage"></p>
-        </div>
-        <p id="error" class="error hidden"></p>
-    </div>
-    <script src="script.js"></script>
+  <h1>WeaverLoops 1.08</h1>
+  <input type="file" id="audioFileInput" accept="audio/*">
+  <button id="uploadButton" disabled>Upload</button>
+  <div id="errorMessage"></div>
+  <canvas id="waveformCanvas"></canvas>
+  <div id="controls">
+    <button id="playButton">Play</button>
+    <button id="loopButton">Enable Loop</button>
+    <label>Crossfade (s): <input type="number" id="crossfadeInput" min="0" max="10" step="0.1" value="0"></label>
+  </div>
+  <script src="script.js"></script>
 </body>
 </html>
