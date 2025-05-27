@@ -1,81 +1,177 @@
-let audioContext = null;
-let audioBuffer = null;
-let loopBuffer = null;
-let source = null;
-let selection = { start: 0, end: 0 };
-let isDragging = false;
-let dragHandle = null;
-let playhead = 0;
+let audioContext;
+let audioBuffer;
+let loopBuffer;
+let sourceNode;
 let isPlaying = false;
-let previewPlayhead = 0;
 let previewIsPlaying = false;
+let playhead = 0;
+let previewPlayhead = 0;
+let selection = { start: 0, end: 0 };
+let startTime = 0;
+let animationFrameId;
 
-const canvas = document.getElementById('waveform');
-const ctx = canvas.getContext('2d');
-const previewCanvas = document.getElementById('previewWaveform');
-const previewCtx = previewCanvas.getContext('2d');
-const audioInput = document.getElementById('audioInput');
-const playheadSlider = document.getElementById('playheadSlider');
-const playheadTime = document.getElementById('playheadTime');
+const audioFile = document.getElementById('audioFile');
+const waveformCanvas = document.getElementById('waveformCanvas');
+const previewWaveformCanvas = document.getElementById('previewWaveformCanvas');
 const playBtn = document.getElementById('playBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const startBtn = document.getElementById('startBtn');
 const endBtn = document.getElementById('endBtn');
-const deleteBtn = document.getElementById('deleteBtn');
-const crossfadeSelect = document.getElementById('crossfadeSelect');
+const cropBtn = document.getElementById('cropBtn');
 const previewBtn = document.getElementById('previewBtn');
-const previewPlayheadSlider = document.getElementById('previewPlayheadSlider');
-const previewPlayheadTime = document.getElementById('previewPlayheadTime');
 const previewPlayBtn = document.getElementById('previewPlayBtn');
 const previewPauseBtn = document.getElementById('previewPauseBtn');
-const previewLoopBtn = document.getElementById('previewLoopBtn');
-const exportBtn = document.getElementById('exportBtn');
-const error = document.getElementById('error');
-const progress = document.getElementById('progress');
-const progressMessage = document.getElementById('progressMessage');
+const downloadBtn = document.getElementById('downloadBtn');
+const crossfadeSelect = document.getElementById('crossfadeSelect');
+const playheadSlider = document.getElementById('playheadSlider');
+const previewPlayheadSlider = document.getElementById('previewPlayheadSlider');
+const playheadTime = document.getElementById('playheadTime');
+const previewPlayheadTime = document.getElementById('previewPlayheadTime');
+const selectionStart = document.getElementById('selectionStart');
+const selectionEnd = document.getElementById('selectionEnd');
+const errorDiv = document.getElementById('error');
+const progressDiv = document.getElementById('progress');
 
 function showError(message) {
-    error.textContent = message;
-    error.classList.remove('hidden');
+    errorDiv.textContent = message;
+    errorDiv.classList.remove('hidden');
 }
 
 function clearError() {
-    error.textContent = '';
-    error.classList.add('hidden');
+    errorDiv.textContent = '';
+    errorDiv.classList.add('hidden');
 }
 
 function showProgress(message) {
-    progressMessage.textContent = message;
-    progress.classList.remove('hidden');
+    progressDiv.textContent = message;
+    progressDiv.classList.remove('hidden');
 }
 
 function hideProgress() {
-    progress.classList.add('hidden');
+    progressDiv.classList.add('hidden');
 }
 
 function resizeCanvases() {
-    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-    previewCanvas.width = previewCanvas.offsetWidth * window.devicePixelRatio;
-    previewCanvas.height = previewCanvas.offsetHeight * window.devicePixelRatio;
-    drawWaveform();
-    drawPreviewWaveform();
+    waveformCanvas.width = waveformCanvas.offsetWidth * 2;
+    waveformCanvas.height = waveformCanvas.offsetHeight * 2;
+    previewWaveformCanvas.width = previewWaveformCanvas.offsetWidth * 2;
+    previewWaveformCanvas.height = previewWaveformCanvas.offsetHeight * 2;
+    if (audioBuffer) drawWaveform();
+    if (loopBuffer) drawPreviewWaveform();
 }
 
-window.addEventListener('resize', resizeCanvases);
+function drawWaveform() {
+    const ctx = waveformCanvas.getContext('2d');
+    ctx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+    ctx.fillStyle = '#e0e0e0';
+    ctx.fillRect(0, 0, waveformCanvas.width, waveformCanvas.height);
 
-audioInput.addEventListener('change', async (e) => {
+    if (!audioBuffer) return;
+
+    const data = audioBuffer.getChannelData(0);
+    const step = Math.ceil(data.length / waveformCanvas.width);
+    const amp = waveformCanvas.height / 2;
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+
+    for (let i = 0; i < waveformCanvas.width; i++) {
+        let min = 1.0;
+        let max = -1.0;
+        for (let j = 0; j < step; j++) {
+            const datum = data[(i * step) + j] || 0;
+            if (datum < min) min = datum;
+            if (datum > max) max = datum;
+        }
+        ctx.moveTo(i, (1 + min) * amp);
+        ctx.lineTo(i, (1 + max) * amp);
+    }
+    ctx.stroke();
+
+    if (selection.start !== selection.end) {
+        const startX = (selection.start / audioBuffer.duration) * waveformCanvas.width;
+        const endX = (selection.end / audioBuffer.duration) * waveformCanvas.width;
+        ctx.fillStyle = 'rgba(255, 165, 0, 0.3)';
+        ctx.fillRect(startX, 0, endX - startX, waveformCanvas.height);
+
+        ctx.fillStyle = 'rgba(255, 165, 0, 0.7)';
+        ctx.fillRect(startX - 2, 0, 4, waveformCanvas.height);
+        ctx.fillRect(endX - 2, 0, 4, waveformCanvas.height);
+    }
+
+    const playheadX = (playhead / audioBuffer.duration) * waveformCanvas.width;
+    ctx.beginPath();
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 2;
+    ctx.moveTo(playheadX, 0);
+    ctx.lineTo(playheadX, waveformCanvas.height);
+    ctx.stroke();
+}
+
+function drawPreviewWaveform() {
+    const ctx = previewWaveformCanvas.getContext('2d');
+    ctx.clearRect(0, 0, previewWaveformCanvas.width, previewWaveformCanvas.height);
+    ctx.fillStyle = '#e0e0e0';
+    ctx.fillRect(0, 0, previewWaveformCanvas.width, previewWaveformCanvas.height);
+
+    if (!loopBuffer) return;
+
+    const data = loopBuffer.getChannelData(0);
+    const step = Math.ceil(data.length / previewWaveformCanvas.width);
+    const amp = previewWaveformCanvas.height / 2;
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+
+    for (let i = 0; i < previewWaveformCanvas.width; i++) {
+        let min = 1.0;
+        let max = -1.0;
+        for (let j = 0; j < step; j++) {
+            const datum = data[(i * step) + j] || 0;
+            if (datum < min) min = datum;
+            if (datum > max) max = datum;
+        }
+        ctx.moveTo(i, (1 + min) * amp);
+        ctx.lineTo(i, (1 + max) * amp);
+    }
+    ctx.stroke();
+
+    const playheadX = (previewPlayhead / loopBuffer.duration) * previewWaveformCanvas.width;
+    ctx.beginPath();
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 2;
+    ctx.moveTo(playheadX, 0);
+    ctx.lineTo(playheadX, previewWaveformCanvas.height);
+    ctx.stroke();
+}
+
+audioFile.addEventListener('change', async (e) => {
     const file = e.target.files[0];
-    if (!file) return;
+    if (!file) {
+        showError('No file selected.');
+        return;
+    }
 
-    if (file.size > 100 * 1024 * 1024) {
-        showError('File too large. Maximum size is 100MB.');
+    // Validate file type
+    const validTypes = ['audio/wav', 'audio/mpeg', 'audio/aiff', 'audio/x-aiff', 'audio/mp4'];
+    const validExtensions = ['.wav', '.mp3', '.aif', '.aiff', '.m4a'];
+    const fileExt = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+    if (!validTypes.includes(file.type) && !validExtensions.includes(fileExt)) {
+        showError('Unsupported file format. Please select a WAV, MP3, AIF, or M4A file.');
         return;
     }
 
     showProgress('Loading audio...');
     try {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        // Ensure AudioContext is created and resumed
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
         const arrayBuffer = await file.arrayBuffer();
         audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
         if (audioBuffer.duration < 0.2) {
@@ -88,245 +184,97 @@ audioInput.addEventListener('change', async (e) => {
         playheadSlider.max = audioBuffer.duration;
         playheadSlider.value = 0;
         playheadTime.textContent = '0.00s';
-        document.getElementById('editStep').classList.remove('hidden');
+        document.getElementById('cropStep').classList.remove('hidden');
+        // Force canvas resize and redraw
         resizeCanvases();
+        drawWaveform();
         hideProgress();
+        clearError();
     } catch (err) {
-        showError('Invalid or corrupted audio file.');
+        console.error('Audio loading error:', err);
+        showError(`Failed to load audio: ${err.message || 'Unknown error'}`);
         hideProgress();
     }
-});
-
-function drawWaveform() {
-    if (!audioBuffer) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#333';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const data = audioBuffer.getChannelData(0);
-    const step = Math.ceil(data.length / canvas.width);
-    const amp = canvas.height / 2;
-    ctx.beginPath();
-    ctx.strokeStyle = '#00FFFF';
-    for (let i = 0; i < canvas.width; i++) {
-        let min = 1.0, max = -1.0;
-        for (let j = 0; j < step; j++) {
-            const datum = data[(i * step) + j] || 0;
-            if (datum < min) min = datum;
-            if (datum > max) max = datum;
-        }
-        ctx.moveTo(i, (1 + min) * amp);
-        ctx.lineTo(i, (1 + max) * amp);
-    }
-    ctx.stroke();
-
-    if (selection.start !== selection.end) {
-        const startX = (selection.start / audioBuffer.duration) * canvas.width;
-        const endX = (selection.end / audioBuffer.duration) * canvas.width;
-        ctx.fillStyle = 'rgba(255, 165, 0, 0.5)';
-        ctx.fillRect(startX, 0, endX - startX, canvas.height);
-        ctx.fillStyle = '#FFA500';
-        ctx.fillRect(startX - 2, 0, 4, canvas.height);
-        ctx.fillRect(endX - 2, 0, 4, canvas.height);
-    }
-
-    const playheadX = (playhead / audioBuffer.duration) * canvas.width;
-    ctx.strokeStyle = '#fff';
-    ctx.beginPath();
-    ctx.moveTo(playheadX, 0);
-    ctx.lineTo(playheadX, canvas.height);
-    ctx.stroke();
-}
-
-function drawPreviewWaveform() {
-    if (!loopBuffer) return;
-    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    previewCtx.fillStyle = '#333';
-    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-
-    const data = loopBuffer.getChannelData(0);
-    const step = Math.ceil(data.length / previewCanvas.width);
-    const amp = previewCanvas.height / 2;
-    previewCtx.beginPath();
-    previewCtx.strokeStyle = '#00FFFF';
-    for (let i = 0; i < previewCanvas.width; i++) {
-        let min = 1.0, max = -1.0;
-        for (let j = 0; j < step; j++) {
-            const datum = data[(i * step) + j] || 0;
-            if (datum < min) min = datum;
-            if (datum > max) max = datum;
-        }
-        previewCtx.moveTo(i, (1 + min) * amp);
-        previewCtx.lineTo(i, (1 + max) * amp);
-    }
-    previewCtx.stroke();
-
-    const playheadX = (previewPlayhead / loopBuffer.duration) * previewCanvas.width;
-    previewCtx.strokeStyle = '#fff';
-    previewCtx.beginPath();
-    previewCtx.moveTo(playheadX, 0);
-    previewCtx.lineTo(playheadX, previewCanvas.height);
-    previewCtx.stroke();
-}
-
-canvas.addEventListener('mousedown', handleWaveformInteraction);
-canvas.addEventListener('touchstart', handleWaveformInteraction);
-
-canvas.addEventListener('mousemove', (e) => handleDrag(e));
-canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    handleDrag(e.touches[0]);
-});
-
-canvas.addEventListener('mouseup', () => isDragging = false);
-canvas.addEventListener('touchend', () => isDragging = false);
-
-function getCanvasX(e) {
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * window.devicePixelRatio;
-    return Math.max(0, Math.min(x, canvas.width));
-}
-
-function handleWaveformInteraction(e) {
-    e.preventDefault();
-    const x = getCanvasX(e);
-    const duration = audioBuffer.duration;
-    const time = (x / canvas.width) * duration;
-
-    const startX = (selection.start / duration) * canvas.width;
-    const endX = (selection.end / duration) * canvas.width;
-
-    if (Math.abs(x - startX) < 15) {
-        isDragging = true;
-        dragHandle = 'start';
-    } else if (Math.abs(x - endX) < 15) {
-        isDragging = true;
-        dragHandle = 'end';
-    } else if (x >= startX && x <= endX && selection.start !== selection.end) {
-        isDragging = true;
-        dragHandle = 'move';
-    } else {
-        selection.start = time;
-        selection.end = time;
-        isDragging = true;
-        dragHandle = 'end';
-    }
-    drawWaveform();
-}
-
-function handleDrag(e) {
-    if (!isDragging || !audioBuffer) return;
-    const x = getCanvasX(e);
-    const time = Math.max(0, Math.min((x / canvas.width) * audioBuffer.duration, audioBuffer.duration));
-
-    if (dragHandle === 'start') {
-        selection.start = Math.min(time, selection.end);
-    } else if (dragHandle === 'end') {
-        selection.end = Math.max(time, selection.start);
-    } else if (dragHandle === 'move') {
-        const delta = time - selection.start;
-        selection.start = Math.max(0, selection.start + delta);
-        selection.end = Math.min(audioBuffer.duration, selection.end + delta);
-    }
-    drawWaveform();
-}
-
-playheadSlider.addEventListener('input', () => {
-    if (!audioBuffer) return;
-    playhead = parseFloat(playheadSlider.value);
-    playheadTime.textContent = playhead.toFixed(2) + 's';
-    if (source) {
-        source.stop();
-        source = null;
-        isPlaying = false;
-    }
-    drawWaveform();
 });
 
 playBtn.addEventListener('click', () => {
     if (!audioBuffer || isPlaying) return;
-    if (!source) {
-        source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
-    source.start(0, playhead);
-    isPlaying = true;
-    const startTime = audioContext.currentTime;
-    const initialPlayhead = playhead;
-    const interval = setInterval(() => {
-        if (!isPlaying) {
-            clearInterval(interval);
-            return;
-        }
-        playhead = initialPlayhead + (audioContext.currentTime - startTime);
-        playheadSlider.value = playhead;
-        playheadTime.textContent = playhead.toFixed(2) + 's';
-        if (playhead >= audioBuffer.duration) {
-            playhead = audioBuffer.duration;
-            source.stop();
-            source = null;
-            isPlaying = false;
-            clearInterval(interval);
-        }
-        drawWaveform();
-    }, 50);
+    if (audioContext.state === 'suspended') {
+        audioContext.resume().then(startPlayback);
+    } else {
+        startPlayback();
+    }
 });
 
-pauseBtn.addEventListener('click', () => {
-    if (source) {
-        source.stop();
-        source = null;
+function startPlayback() {
+    if (sourceNode) sourceNode.stop();
+    sourceNode = audioContext.createBufferSource();
+    sourceNode.buffer = audioBuffer;
+    sourceNode.connect(audioContext.destination);
+    sourceNode.start(0, playhead);
+    startTime = audioContext.currentTime - playhead;
+    isPlaying = true;
+    updatePlayhead();
+}
+
+function updatePlayhead() {
+    if (!isPlaying) return;
+    playhead = audioContext.currentTime - startTime;
+    if (playhead >= audioBuffer.duration) {
+        playhead = 0;
         isPlaying = false;
+        sourceNode.stop();
+        cancelAnimationFrame(animationFrameId);
+    } else {
+        playheadSlider.value = playhead;
+        playheadTime.textContent = playhead.toFixed(2) + 's';
         drawWaveform();
+        animationFrameId = requestAnimationFrame(updatePlayhead);
+    }
+}
+
+pauseBtn.addEventListener('click', () => {
+    if (!isPlaying) return;
+    sourceNode.stop();
+    isPlaying = false;
+    cancelAnimationFrame(animationFrameId);
+});
+
+playheadSlider.addEventListener('input', () => {
+    playhead = parseFloat(playheadSlider.value);
+    playheadTime.textContent = playhead.toFixed(2) + 's';
+    drawWaveform();
+    if (isPlaying) {
+        sourceNode.stop();
+        startPlayback();
     }
 });
 
 startBtn.addEventListener('click', () => {
-    if (!audioBuffer) return;
-    playhead = selection.start;
-    playheadSlider.value = playhead;
-    playheadTime.textContent = playhead.toFixed(2) + 's';
-    if (source) {
-        source.stop();
-        source = null;
-        isPlaying = false;
-    }
+    selection.start = playhead;
+    selectionStart.textContent = selection.start.toFixed(2);
     drawWaveform();
 });
 
 endBtn.addEventListener('click', () => {
-    if (!audioBuffer) return;
-    playhead = selection.end;
-    playheadSlider.value = playhead;
-    playheadTime.textContent = playhead.toFixed(2) + 's';
-    if (source) {
-        source.stop();
-        source = null;
-        isPlaying = false;
-    }
+    selection.end = playhead;
+    selectionEnd.textContent = selection.end.toFixed(2);
     drawWaveform();
 });
 
-deleteBtn.addEventListener('click', async () => {
-    if (!audioBuffer || selection.start === selection.end) {
-        showError('Please select a region to keep.');
+cropBtn.addEventListener('click', () => {
+    if (selection.start >= selection.end) {
+        showError('Invalid selection: start must be before end.');
         return;
     }
-    showProgress('Cropping loop...');
-    const startSample = Math.floor(selection.start * audioBuffer.sampleRate);
-    const endSample = Math.floor(selection.end * audioBuffer.sampleRate);
+    const sampleRate = audioBuffer.sampleRate;
+    const startSample = Math.floor(selection.start * sampleRate);
+    const endSample = Math.floor(selection.end * sampleRate);
     const newLength = endSample - startSample;
-    if (newLength < 0.2 * audioBuffer.sampleRate) {
-        showError('Selected region is too short.');
-        hideProgress();
-        return;
-    }
-    const newBuffer = audioContext.createBuffer(
-        audioBuffer.numberOfChannels,
-        newLength,
-        audioBuffer.sampleRate
-    );
+    const newBuffer = audioContext.createBuffer(audioBuffer.numberOfChannels, newLength, sampleRate);
     for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
         const oldData = audioBuffer.getChannelData(channel);
         const newData = newBuffer.getChannelData(channel);
@@ -336,13 +284,14 @@ deleteBtn.addEventListener('click', async () => {
     }
     audioBuffer = newBuffer;
     selection = { start: 0, end: audioBuffer.duration };
-    playhead = Math.min(playhead - selection.start, audioBuffer.duration);
+    playhead = 0;
     playheadSlider.max = audioBuffer.duration;
-    playheadSlider.value = playhead;
-    playheadTime.textContent = playhead.toFixed(2) + 's';
+    playheadSlider.value = 0;
+    playheadTime.textContent = '0.00s';
+    selectionStart.textContent = '0.00';
+    selectionEnd.textContent = audioBuffer.duration.toFixed(2);
     drawWaveform();
-    document.getElementById('crossfadeStep').classList.remove('hidden');
-    hideProgress();
+    clearError();
 });
 
 previewBtn.addEventListener('click', async () => {
@@ -362,195 +311,151 @@ previewBtn.addEventListener('click', async () => {
     previewPlayheadSlider.max = loopBuffer.duration;
     previewPlayheadSlider.value = 0;
     previewPlayheadTime.textContent = '0.00s';
-    resizeCanvases();
     document.getElementById('previewStep').classList.remove('hidden');
+    // Force canvas resize and redraw for preview waveform
+    setTimeout(() => {
+        resizeCanvases();
+        drawPreviewWaveform();
+    }, 100);
     previewPlayhead = 0;
     previewIsPlaying = false;
     hideProgress();
     document.getElementById('downloadStep').classList.remove('hidden');
-});
-
-previewPlayheadSlider.addEventListener('input', () => {
-    if (!loopBuffer) return;
-    previewPlayhead = parseFloat(previewPlayheadSlider.value);
-    previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
-    if (source) {
-        source.stop();
-        source = null;
-        previewIsPlaying = false;
-    }
-    drawPreviewWaveform();
-});
-
-previewPlayBtn.addEventListener('click', () => {
-    if (!loopBuffer || previewIsPlaying) return;
-    if (!source) {
-        source = audioContext.createBufferSource();
-        source.buffer = loopBuffer;
-        source.connect(audioContext.destination);
-        source.loop = true;
-    }
-    source.start(0, previewPlayhead);
-    previewIsPlaying = true;
-    const startTime = audioContext.currentTime;
-    const initialPlayhead = previewPlayhead;
-    const interval = setInterval(() => {
-        if (!previewIsPlaying) {
-            clearInterval(interval);
-            return;
-        }
-        previewPlayhead = (initialPlayhead + (audioContext.currentTime - startTime)) % loopBuffer.duration;
-        previewPlayheadSlider.value = previewPlayhead;
-        previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
-        drawPreviewWaveform();
-    }, 50);
-});
-
-previewPauseBtn.addEventListener('click', () => {
-    if (source) {
-        source.stop();
-        source = null;
-        previewIsPlaying = false;
-        drawPreviewWaveform();
-    }
-});
-
-previewLoopBtn.addEventListener('click', () => {
-    if (!loopBuffer) return;
-    if (source) {
-        source.stop();
-        source = null;
-        previewIsPlaying = false;
-    }
-    const crossfadeDuration = parseFloat(crossfadeSelect.value);
-    const previewStart = Math.max(0, loopBuffer.duration - crossfadeDuration - 5);
-    previewPlayhead = previewStart;
-    previewPlayheadSlider.value = previewPlayhead;
-    previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
-    source = audioContext.createBufferSource();
-    source.buffer = loopBuffer;
-    source.connect(audioContext.destination);
-    source.loop = true;
-    source.start(0, previewPlayhead);
-    previewIsPlaying = true;
-    const startTime = audioContext.currentTime;
-    const initialPlayhead = previewPlayhead;
-    const interval = setInterval(() => {
-        if (!previewIsPlaying) {
-            clearInterval(interval);
-            return;
-        }
-        previewPlayhead = (initialPlayhead + (audioContext.currentTime - startTime)) % loopBuffer.duration;
-        previewPlayheadSlider.value = previewPlayhead;
-        previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
-        drawPreviewWaveform();
-    }, 50);
-    drawPreviewWaveform();
+    clearError();
 });
 
 async function createLoopBuffer(crossfadeDuration) {
-    const sampleRate = audioBuffer.sampleRate;
-    const crossfadeSamples = Math.floor(crossfadeDuration * sampleRate);
-    const newLength = audioBuffer.length - crossfadeSamples;
-    if (newLength <= 0) {
-        showError('Crossfade duration is too long for the audio length.');
+    try {
+        const sampleRate = audioBuffer.sampleRate;
+        const totalSamples = Math.floor(audioBuffer.duration * sampleRate);
+        const crossfadeSamples = Math.floor(crossfadeDuration * sampleRate);
+        const newLength = totalSamples + crossfadeSamples;
+        const newBuffer = audioContext.createBuffer(audioBuffer.numberOfChannels, newLength, sampleRate);
+
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+            const oldData = audioBuffer.getChannelData(channel);
+            const newData = newBuffer.getChannelData(channel);
+            for (let i = 0; i < totalSamples; i++) {
+                newData[i] = oldData[i];
+            }
+            for (let i = 0; i < crossfadeSamples; i++) {
+                const fadeOut = 1 - (i / crossfadeSamples);
+                const fadeIn = i / crossfadeSamples;
+                newData[totalSamples + i] = oldData[i] * fadeIn + oldData[totalSamples - crossfadeSamples + i] * fadeOut;
+            }
+        }
+        return newBuffer;
+    } catch (err) {
+        console.error('Create loop buffer error:', err);
         return null;
     }
-    const loopBuffer = audioContext.createBuffer(
-        audioBuffer.numberOfChannels,
-        newLength,
-        sampleRate
-    );
-
-    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-        const inputData = audioBuffer.getChannelData(channel);
-        const outputData = loopBuffer.getChannelData(channel);
-        for (let i = 0; i < newLength; i++) {
-            outputData[i] = inputData[i + crossfadeSamples];
-        }
-        for (let i = 0; i < crossfadeSamples; i++) {
-            const fadeIn = i / crossfadeSamples;
-            const fadeOut = 1 - (i / crossfadeSamples);
-            outputData[newLength - crossfadeSamples + i] =
-                inputData[i] * fadeIn + inputData[audioBuffer.length - crossfadeSamples + i] * fadeOut;
-        }
-    }
-    return loopBuffer;
 }
 
-exportBtn.addEventListener('click', async () => {
-    if (!audioBuffer) return;
-    const crossfadeDuration = parseFloat(crossfadeSelect.value);
-    if (crossfadeDuration > audioBuffer.duration / 2) {
-        showError('Crossfade duration cannot exceed half the audio length.');
-        return;
+previewPlayBtn.addEventListener('click', () => {
+    if (!loopBuffer || previewIsPlaying) return;
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
-    showProgress('Exporting loop...');
-    const loopBuffer = await createLoopBuffer(crossfadeDuration);
-    if (!loopBuffer) {
-        showError('Failed to export loop.');
-        hideProgress();
-        return;
+    if (audioContext.state === 'suspended') {
+        audioContext.resume().then(startPreviewPlayback);
+    } else {
+        startPreviewPlayback();
     }
-    const wavBlob = bufferToWav(loopBuffer);
-    const fileName = audioInput.files[0].name.replace(/\.[^/.]+$/, '') + '_LOOP.wav';
+});
+
+function startPreviewPlayback() {
+    if (sourceNode) sourceNode.stop();
+    sourceNode = audioContext.createBufferSource();
+    sourceNode.buffer = loopBuffer;
+    sourceNode.connect(audioContext.destination);
+    sourceNode.loop = true;
+    const startOffset = Math.max(0, loopBuffer.duration - 15); // Start 15s before end
+    sourceNode.start(0, startOffset);
+    startTime = audioContext.currentTime - startOffset;
+    previewIsPlaying = true;
+    updatePreviewPlayhead();
+}
+
+function updatePreviewPlayhead() {
+    if (!previewIsPlaying) return;
+    previewPlayhead = (audioContext.currentTime - startTime) % loopBuffer.duration;
+    previewPlayheadSlider.value = previewPlayhead;
+    previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
+    drawPreviewWaveform();
+    animationFrameId = requestAnimationFrame(updatePreviewPlayhead);
+}
+
+previewPauseBtn.addEventListener('click', () => {
+    if (!previewIsPlaying) return;
+    sourceNode.stop();
+    previewIsPlaying = false;
+    cancelAnimationFrame(animationFrameId);
+});
+
+previewPlayheadSlider.addEventListener('input', () => {
+    previewPlayhead = parseFloat(previewPlayheadSlider.value);
+    previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
+    drawPreviewWaveform();
+    if (previewIsPlaying) {
+        sourceNode.stop();
+        startPreviewPlayback();
+    }
+});
+
+downloadBtn.addEventListener('click', async () => {
+    if (!loopBuffer) return;
+    showProgress('Preparing download...');
     try {
+        const wavBlob = await bufferToWave(loopBuffer);
+        const url = URL.createObjectURL(wavBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = audioFile.files[0].name.replace(/\.[^/.]+$/, '') + '_LOOP.wav';
         if (window.showSaveFilePicker) {
             const handle = await window.showSaveFilePicker({
-                suggestedName: fileName,
-                types: [{
-                    description: 'WAV Audio',
-                    accept: { 'audio/wav': ['.wav'] }
-                }]
+                suggestedName: a.download,
+                types: [{ description: 'WAV Audio', accept: { 'audio/wav': ['.wav'] } }]
             });
             const writable = await handle.createWritable();
             await writable.write(wavBlob);
             await writable.close();
         } else {
-            const url = URL.createObjectURL(wavBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
             a.click();
-            URL.revokeObjectURL(url);
         }
-    } catch (err) {
-        showError('Failed to save file. Using default download.');
-        const url = URL.createObjectURL(wavBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        a.click();
         URL.revokeObjectURL(url);
+        hideProgress();
+        clearError();
+    } catch (err) {
+        console.error('Download error:', err);
+        showError('Failed to download loop.');
+        hideProgress();
     }
-    hideProgress();
 });
 
-function bufferToWav(buffer) {
-    const numChannels = buffer.numberOfChannels;
-    const sampleRate = buffer.sampleRate;
-    const length = buffer.length * numChannels * 2 + 44;
+async function bufferToWave(buffer) {
+    const numOfChan = buffer.numberOfChannels;
+    const length = buffer.length * numOfChan * 2 + 44;
     const arrayBuffer = new ArrayBuffer(length);
     const view = new DataView(arrayBuffer);
 
     writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + buffer.length * numChannels * 2, true);
+    view.setUint32(4, 36 + buffer.length * numOfChan * 2, true);
     writeString(view, 8, 'WAVE');
     writeString(view, 12, 'fmt ');
     view.setUint32(16, 16, true);
     view.setUint16(20, 1, true);
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * numChannels * 2, true);
-    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(22, numOfChan, true);
+    view.setUint32(24, buffer.sampleRate, true);
+    view.setUint32(28, buffer.sampleRate * numOfChan * 2, true);
+    view.setUint16(32, numOfChan * 2, true);
     view.setUint16(34, 16, true);
     writeString(view, 36, 'data');
-    view.setUint32(40, buffer.length * numChannels * 2, true);
+    view.setUint32(40, buffer.length * numOfChan * 2, true);
 
     for (let i = 0; i < buffer.length; i++) {
-        for (let channel = 0; channel < numChannels; channel++) {
+        for (let channel = 0; channel < numOfChan; channel++) {
             const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
-            view.setInt16(44 + (i * numChannels + channel) * 2, sample * 0x7FFF, true);
+            view.setInt16(44 + (i * numOfChan + channel) * 2, sample * 0x7FFF, true);
         }
     }
 
@@ -563,6 +468,61 @@ function writeString(view, offset, string) {
     }
 }
 
-if (!window.AudioContext && !window.webkitAudioContext) {
-    showError('Your browser does not support Web Audio API.');
-}
+let isDragging = false;
+let dragStartX = 0;
+let dragEndX = 0;
+
+waveformCanvas.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    const rect = waveformCanvas.getBoundingClientRect();
+    dragStartX = (e.clientX - rect.left) / rect.width * audioBuffer.duration;
+    dragEndX = dragStartX;
+    selection.start = dragStartX;
+    selection.end = dragEndX;
+    drawWaveform();
+});
+
+waveformCanvas.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const rect = waveformCanvas.getBoundingClientRect();
+    dragEndX = (e.clientX - rect.left) / rect.width * audioBuffer.duration;
+    selection.start = Math.min(dragStartX, dragEndX);
+    selection.end = Math.max(dragStartX, dragEndX);
+    selectionStart.textContent = selection.start.toFixed(2);
+    selectionEnd.textContent = selection.end.toFixed(2);
+    drawWaveform();
+});
+
+waveformCanvas.addEventListener('mouseup', () => {
+    isDragging = false;
+});
+
+waveformCanvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    isDragging = true;
+    const rect = waveformCanvas.getBoundingClientRect();
+    dragStartX = (e.touches[0].clientX - rect.left) / rect.width * audioBuffer.duration;
+    dragEndX = dragStartX;
+    selection.start = dragStartX;
+    selection.end = dragEndX;
+    drawWaveform();
+});
+
+waveformCanvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!isDragging) return;
+    const rect = waveformCanvas.getBoundingClientRect();
+    dragEndX = (e.touches[0].clientX - rect.left) / rect.width * audioBuffer.duration;
+    selection.start = Math.min(dragStartX, dragEndX);
+    selection.end = Math.max(dragStartX, dragEndX);
+    selectionStart.textContent = selection.start.toFixed(2);
+    selectionEnd.textContent = selection.end.toFixed(2);
+    drawWaveform();
+});
+
+waveformCanvas.addEventListener('touchend', () => {
+    isDragging = false;
+});
+
+window.addEventListener('resize', resizeCanvases);
+resizeCanvases();
