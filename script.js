@@ -127,9 +127,11 @@ window.addEventListener('DOMContentLoaded', () => {
             playheadSlider.value = 0;
             playheadTime.textContent = '0.00s';
             selectionStartSlider.max = audioBuffer.duration;
+            selectionStartSlider.min = 0;
             selectionStartSlider.value = 0;
             selectionStartTime.textContent = '0.00s';
             selectionEndSlider.max = audioBuffer.duration;
+            selectionEndSlider.min = 0;
             selectionEndSlider.value = audioBuffer.duration;
             selectionEndTime.textContent = audioBuffer.duration.toFixed(2) + 's';
             document.getElementById('editStep').classList.remove('hidden');
@@ -217,10 +219,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
     selectionStartSlider.addEventListener('input', () => {
         if (!audioBuffer) return;
-        selection.start = parseFloat(selectionStartSlider.value);
-        if (selection.start > selection.end) {
+        const value = parseFloat(selectionStartSlider.value);
+        if (value <= selection.end) {
+            selection.start = value;
+        } else {
             selection.start = selection.end;
-            selectionStartSlider.value = selection.start;
+            selectionStartSlider.value = selection.end;
         }
         selectionStartTime.textContent = selection.start.toFixed(2) + 's';
         drawWaveform();
@@ -228,10 +232,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
     selectionEndSlider.addEventListener('input', () => {
         if (!audioBuffer) return;
-        selection.end = parseFloat(selectionEndSlider.value);
-        if (selection.end < selection.start) {
+        const value = parseFloat(selectionEndSlider.value);
+        if (value >= selection.start) {
+            selection.end = value;
+        } else {
             selection.end = selection.start;
-            selectionEndSlider.value = selection.end;
+            selectionEndSlider.value = selection.start;
         }
         selectionEndTime.textContent = selection.end.toFixed(2) + 's';
         drawWaveform();
@@ -348,9 +354,88 @@ window.addEventListener('DOMContentLoaded', () => {
         playheadSlider.value = playhead;
         playheadTime.textContent = playhead.toFixed(2) + 's';
         selectionStartSlider.max = audioBuffer.duration;
+        selectionStartSlider.min = 0;
         selectionStartSlider.value = 0;
         selectionStartTime.textContent = '0.00s';
         selectionEndSlider.max = audioBuffer.duration;
+        selectionEndSlider.min = 0;
         selectionEndSlider.value = audioBuffer.duration;
         selectionEndTime.textContent = audioBuffer.duration.toFixed(2) + 's';
-        draw
+        drawWaveform();
+        document.getElementById('crossfadeStep').classList.remove('hidden');
+        hideProgress();
+    });
+
+    previewBtn.addEventListener('click', async () => {
+        if (!audioBuffer) return;
+        resumeAudioContext();
+        const crossfadeDuration = parseFloat(crossfadeSelect.value);
+        if (crossfadeDuration > audioBuffer.duration / 2) {
+            showError('Crossfade duration cannot exceed half the audio length.');
+            return;
+        }
+        showProgress('Generating preview...');
+        loopBuffer = await createLoopBuffer(crossfadeDuration);
+        if (!loopBuffer) {
+            showError('Failed to generate loop buffer.');
+            hideProgress();
+            return;
+        }
+        previewPlayheadSlider.max = loopBuffer.duration;
+        previewPlayheadSlider.value = 0;
+        previewPlayheadTime.textContent = '0.00s';
+        resizeCanvases();
+        document.getElementById('previewStep').classList.remove('hidden');
+        previewPlayhead = 0;
+        previewIsPlaying = false;
+        hideProgress();
+        document.getElementById('downloadStep').classList.remove('hidden');
+    });
+
+    previewPlayheadSlider.addEventListener('input', () => {
+        if (!loopBuffer) return;
+        previewPlayhead = parseFloat(previewPlayheadSlider.value);
+        previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
+        if (source) {
+            source.stop();
+            source = null;
+            previewIsPlaying = false;
+        }
+        drawPreviewWaveform();
+    });
+
+    previewPlayBtn.addEventListener('click', () => {
+        if (!loopBuffer || previewIsPlaying) return;
+        resumeAudioContext();
+        if (!source) {
+            source = audioContext.createBufferSource();
+            source.buffer = loopBuffer;
+            source.connect(audioContext.destination);
+            source.loop = true;
+        }
+        source.start(0, previewPlayhead);
+        previewIsPlaying = true;
+        const startTime = audioContext.currentTime;
+        const initialPlayhead = previewPlayhead;
+        const interval = setInterval(() => {
+            if (!previewIsPlaying) {
+                clearInterval(interval);
+                return;
+            }
+            previewPlayhead = (initialPlayhead + (audioContext.currentTime - startTime)) % loopBuffer.duration;
+            previewPlayheadSlider.value = previewPlayhead;
+            previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
+            drawPreviewWaveform();
+        }, 50);
+    });
+
+    previewPauseBtn.addEventListener('click', () => {
+        if (source) {
+            source.stop();
+            source = null;
+            previewIsPlaying = false;
+            drawPreviewWaveform();
+        }
+    });
+
+    previewLoopBtn.addEventListener('click',
