@@ -49,6 +49,9 @@ window.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
+    // Clear file input on page load
+    audioInput.value = '';
+
     function showError(message) {
         error.textContent = message;
         error.classList.remove('hidden');
@@ -167,7 +170,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const step = Math.ceil(data.length / canvas.width);
         const amp = canvas.height / 2;
         ctx.beginPath();
-        ctx.strokeStyle = '#00f';
+        ctx.strokeStyle = 'rgb(0,255,255)';
         for (let i = 0; i < canvas.width; i++) {
             let min = 1.0, max = -1.0;
             for (let j = 0; j < step; j++) {
@@ -206,9 +209,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
         const data = loopBuffer.getChannelData(0);
         const step = Math.ceil(data.length / previewCanvas.width);
-        const amp = canvas.height / 2;
+        const amp = previewCanvas.height / 2;
         previewCtx.beginPath();
-        previewCtx.strokeStyle = '#00f';
+        previewCtx.strokeStyle = 'rgb(0,255,255)';
         for (let i = 0; i < previewCanvas.width; i++) {
             let min = 1.0, max = -1.0;
             for (let j = 0; j < step; j++) {
@@ -217,7 +220,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 if (datum > max) max = datum;
             }
             previewCtx.moveTo(i, (1 + min) * amp);
-            ctx.lineTo(i, (1 + max) * amp);
+            previewCtx.lineTo(i, (1 + max) * amp);
         }
         previewCtx.stroke();
 
@@ -392,12 +395,12 @@ window.addEventListener('DOMContentLoaded', () => {
         previewPlayheadSlider.max = loopBuffer.duration;
         previewPlayheadSlider.value = 0;
         previewPlayheadTime.textContent = '0.00s';
-        resizeCanvases();
-        document.getElementById('previewStep').classList.remove('hidden');
         previewPlayhead = 0;
         previewIsPlaying = false;
-        hideProgress();
+        document.getElementById('previewStep').classList.remove('hidden');
         document.getElementById('downloadStep').classList.remove('hidden');
+        drawPreviewWaveform();
+        hideProgress();
     });
 
     previewPlayheadSlider.addEventListener('input', () => {
