@@ -64,6 +64,13 @@ button {
 }
 
 button:hover {
+    background: #"]/css]
+button {
+    background: #555;
+    color: #fff;
+}
+
+button:hover {
     background: #777;
 }
 
