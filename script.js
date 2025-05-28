@@ -49,6 +49,7 @@ window.addEventListener('DOMContentLoaded', () => {
     function showError(message) {
         error.textContent = message;
         error.classList.remove('hidden');
+        console.error(message);
     }
 
     function clearError() {
@@ -65,6 +66,14 @@ window.addEventListener('DOMContentLoaded', () => {
         progress.classList.add('hidden');
     }
 
+    function resumeAudioContext() {
+        if (audioContext && audioContext.state === 'suspended') {
+            audioContext.resume().catch(err => {
+                showError('Failed to resume audio context: ' + err.message);
+            });
+        }
+    }
+
     function resizeCanvases() {
         canvas.width = canvas.offsetWidth * window.devicePixelRatio;
         canvas.height = canvas.offsetHeight * window.devicePixelRatio;
@@ -79,12 +88,17 @@ window.addEventListener('DOMContentLoaded', () => {
     audioInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
             uploadButton.disabled = false;
+        } else {
+            uploadButton.disabled = true;
         }
     });
 
     uploadButton.addEventListener('click', async () => {
         const file = audioInput.files[0];
-        if (!file) return;
+        if (!file) {
+            showError('No file selected.');
+            return;
+        }
 
         if (file.size > 100 * 1024 * 1024) {
             showError('File too large. Maximum size is 100MB.');
@@ -93,7 +107,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
         showProgress('Loading audio...');
         try {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            // Initialize or resume AudioContext
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            resumeAudioContext();
+
             const arrayBuffer = await file.arrayBuffer();
             audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
             if (audioBuffer.duration < 0.2) {
@@ -108,15 +127,17 @@ window.addEventListener('DOMContentLoaded', () => {
             playheadTime.textContent = '0.00s';
             document.getElementById('editStep').classList.remove('hidden');
             resizeCanvases();
+            clearError();
             hideProgress();
         } catch (err) {
-            showError('Invalid or corrupted audio file.');
+            showError('Failed to load audio: ' + err.message);
+            console.error('Audio loading error:', err);
             hideProgress();
         }
     });
 
     function drawWaveform() {
-        if (!audioBuffer) return;
+        if (!audioBuffer || !ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#333';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -157,7 +178,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     function drawPreviewWaveform() {
-        if (!loopBuffer) return;
+        if (!loopBuffer || !previewCtx) return;
         previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
         previewCtx.fillStyle = '#333';
         previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
@@ -207,8 +228,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
     function handleWaveformInteraction(e) {
         e.preventDefault();
+        resumeAudioContext();
         const x = getCanvasX(e);
-        const duration = audioBuffer.duration;
+        const duration = audioBuffer ? audioBuffer.duration : 0;
         const time = (x / canvas.width) * duration;
 
         const startX = (selection.start / duration) * canvas.width;
@@ -263,6 +285,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     playBtn.addEventListener('click', () => {
         if (!audioBuffer || isPlaying) return;
+        resumeAudioContext();
         if (!source) {
             source = audioContext.createBufferSource();
             source.buffer = audioBuffer;
@@ -365,6 +388,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     previewBtn.addEventListener('click', async () => {
         if (!audioBuffer) return;
+        resumeAudioContext();
         const crossfadeDuration = parseFloat(crossfadeSelect.value);
         if (crossfadeDuration > audioBuffer.duration / 2) {
             showError('Crossfade duration cannot exceed half the audio length.');
@@ -402,6 +426,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     previewPlayBtn.addEventListener('click', () => {
         if (!loopBuffer || previewIsPlaying) return;
+        resumeAudioContext();
         if (!source) {
             source = audioContext.createBufferSource();
             source.buffer = loopBuffer;
@@ -435,6 +460,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     previewLoopBtn.addEventListener('click', () => {
         if (!loopBuffer) return;
+        resumeAudioContext();
         if (source) {
             source.stop();
             source = null;
@@ -498,6 +524,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     exportBtn.addEventListener('click', async () => {
         if (!audioBuffer) return;
+        resumeAudioContext();
         const crossfadeDuration = parseFloat(crossfadeSelect.value);
         if (crossfadeDuration > audioBuffer.duration / 2) {
             showError('Crossfade duration cannot exceed half the audio length.');
