@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WeaverLoops 1.14</title>
+    <title>WeaverLoops 1.15</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>WeaverLoops 1.14</h1>
+        <h1>WeaverLoops 1.15</h1>
         <div class="step">
             <h2>1. Upload Audio</h2>
             <input type="file" id="audioInput" accept="audio/wav,audio/mpeg,audio/aiff,.wav,.mp3,.aif,.aiff">
@@ -52,26 +52,38 @@
                 <option value="8">8s</option>
                 <option value="10">10s</option>
             </select>
-            <button id="previewBtn">ADD CROSSFADE</button>
+            <br>
+            <label for="crossfadeTypeSelect">Crossfade Type:</label>
+            <select id="crossfadeTypeSelect">
+                <option value="linear">Linear</option>
+                <option value="equalPower">Equal Power</option>
+            </select>
+            <div class="controls">
+                <button id="previewBtn">ADD CROSSFADE</button>
+            </div>
         </div>
         <div class="step hidden" id="previewStep">
-            <h2>Preview Loop</h2>
-            <p>Waveform shows the looped audio with crossfade applied.</p>
+            <h2>4. Preview Loop</h2>
+            <p>Canvas shows the looped audio with crossfade applied.</p>
             <canvas id="previewWaveform"></canvas>
             <div class="slider-container">
-                <input type="range" id="previewPlayheadSlider" min="0" max="1" step="0.01">
+                <input type="range" id="previewPlayheadSlider" min="0" step="0.01">
                 <span id="previewPlayheadTime">0.00s</span>
             </div>
             <div class="controls">
                 <button id="previewPlayBtn">PLAY</button>
                 <button id="previewPauseBtn">PAUSE</button>
                 <button id="previewLoopBtn">PREVIEW LOOP</button>
+                <button id="resetBtn">RESET</button>
             </div>
         </div>
         <div class="step hidden" id="downloadStep">
-            <h2>4. Download Loop</h2>
+            <h2>5. Download Loop</h2>
             <p>Note: If your browser doesn't support choosing a save location, the file will save to your Downloads folder.</p>
-            <button id="exportBtn">DOWNLOAD LOOP</button>
+            <div class="controls">
+                <button id="downloadBtn">DOWNLOAD LOOP</button>
+                <button id="newAudioBtn">NEW AUDIO</button>
+            </div>
         </div>
         <div id="progress" class="hidden">
             <div class="spinner"></div>
