@@ -1,7 +1,7 @@
 window.addEventListener('DOMContentLoaded', () => {
     let audioContext = null;
     let audioBuffer = null;
-    let originalBuffer = null; // Store original uploaded buffer
+    let originalBuffer = null;
     let loopBuffer = null;
     let source = null;
     let selection = { start: 0, end: 0 };
@@ -9,6 +9,7 @@ window.addEventListener('DOMContentLoaded', () => {
     let isPlaying = false;
     let previewPlayhead = 0;
     let previewIsPlaying = false;
+    let loopBlobUrl = null;
 
     const canvas = document.getElementById('waveform');
     const ctx = canvas.getContext('2d');
@@ -37,7 +38,9 @@ window.addEventListener('DOMContentLoaded', () => {
     const previewLoopBtn = document.getElementById('previewLoopBtn');
     const resetBtn = document.getElementById('resetBtn');
     const downloadBtn = document.getElementById('downloadBtn');
+    const shareBtn = document.getElementById('shareBtn');
     const newAudioBtn = document.getElementById('newAudioBtn');
+    const loopPlayer = document.getElementById('loopPlayer');
     const error = document.getElementById('error');
     const progress = document.getElementById('progress');
     const progressMessage = document.getElementById('progressMessage');
@@ -47,16 +50,17 @@ window.addEventListener('DOMContentLoaded', () => {
                      selectionStartSlider, selectionStartTime, selectionEndSlider, selectionEndTime,
                      playBtn, pauseBtn, startBtn, endBtn, deleteBtn, crossfadeSelect, crossfadeTypeSelect,
                      previewBtn, previewPlayheadSlider, previewPlayheadTime, previewPlayBtn, 
-                     previewPauseBtn, previewLoopBtn, resetBtn, downloadBtn, newAudioBtn, error, 
-                     progress, progressMessage];
+                     previewPauseBtn, previewLoopBtn, resetBtn, downloadBtn, shareBtn, newAudioBtn,
+                     loopPlayer, error, progress, progressMessage];
     if (elements.some(el => !el)) {
         showError('Initialization error: One or more UI elements are missing.');
         return;
     }
 
-    // Clear file input on page load
+    // Initialize state
     audioInput.value = '';
-    progress.classList.add('hidden'); // Hide spinner on page load
+    progress.classList.add('hidden');
+    loopPlayer.classList.add('hidden');
 
     function showError(message) {
         error.textContent = message;
@@ -75,7 +79,8 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     function hideProgress() {
-        setTimeout(() => progress.classList.add('hidden'), 100); // Brief delay for smoothness
+        progressMessage.textContent = '';
+        progress.classList.add('hidden');
     }
 
     function resumeAudioContext() {
@@ -108,7 +113,6 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 
     function resetToEditState() {
-        // Restore original buffer
         if (!originalBuffer) return;
         audioBuffer = audioContext.createBuffer(
             originalBuffer.numberOfChannels,
@@ -131,15 +135,22 @@ window.addEventListener('DOMContentLoaded', () => {
         selectionEndSlider.min = 0;
         selectionEndSlider.value = audioBuffer.duration;
         selectionEndTime.textContent = audioBuffer.duration.toFixed(2) + 's';
-        crossfadeSelect.value = '1'; // Reset crossfade duration
+        crossfadeSelect.value = '1';
         document.getElementById('editStep').classList.remove('hidden');
         document.getElementById('crossfadeStep').classList.add('hidden');
         document.getElementById('previewStep').classList.add('hidden');
         document.getElementById('downloadStep').classList.add('hidden');
+        loopPlayer.classList.add('hidden');
+        loopPlayer.src = '';
+        if (loopBlobUrl) {
+            URL.revokeObjectURL(loopBlobUrl);
+            loopBlobUrl = null;
+        }
         loopBuffer = null;
         resizeCanvases();
         drawWaveform();
         clearError();
+        hideProgress();
     }
 
     uploadButton.addEventListener('click', () => {
@@ -160,17 +171,19 @@ window.addEventListener('DOMContentLoaded', () => {
             try {
                 if (!audioContext) {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('AudioContext created, sampleRate:', audioContext.sampleRate);
                 }
                 await resumeAudioContext();
                 const arrayBuffer = e.target.result;
-                audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                audioBuffer = await audioContext.decodeAudioData(arrayBuffer).catch(err => {
+                    throw new Error('decodeAudioData failed: ' + err.message);
+                });
                 if (audioBuffer.duration < 0.2) {
                     showError('Audio file is too short.');
                     audioBuffer = null;
                     hideProgress();
                     return;
                 }
-                // Store original buffer
                 originalBuffer = audioContext.createBuffer(
                     audioBuffer.numberOfChannels,
                     audioBuffer.length,
@@ -184,12 +197,15 @@ window.addEventListener('DOMContentLoaded', () => {
             } catch (err) {
                 showError('Failed to load audio: ' + err.message);
                 console.error('Audio loading error:', err);
+                console.log('User Agent:', navigator.userAgent);
+                console.log('File type:', file.type, 'Size:', file.size);
                 hideProgress();
             }
         };
         reader.onerror = () => {
             showError('Error reading file.');
             console.error('FileReader error');
+            console.log('User Agent:', navigator.userAgent);
             hideProgress();
         };
         reader.readAsArrayBuffer(file);
@@ -302,7 +318,6 @@ window.addEventListener('DOMContentLoaded', () => {
     playBtn.addEventListener('click', async () => {
         if (!audioBuffer || isPlaying) return;
         await resumeAudioContext();
-        // Move playhead to selection.start if outside selection
         if (playhead < selection.start || playhead > selection.end) {
             playhead = selection.start;
             playheadSlider.value = playhead;
@@ -322,7 +337,6 @@ window.addEventListener('DOMContentLoaded', () => {
             }
             playhead = initialPlayhead + (audioContext.currentTime - startTime);
             if (playhead >= selection.end) {
-                // Loop back to selection.start
                 const overshoot = playhead - selection.end;
                 playhead = selection.start + overshoot;
                 if (source) source.stop();
@@ -443,7 +457,12 @@ window.addEventListener('DOMContentLoaded', () => {
         previewIsPlaying = false;
         document.getElementById('previewStep').classList.remove('hidden');
         document.getElementById('downloadStep').classList.remove('hidden');
-        resizeCanvases(); // Ensure canvas is ready
+        const wavBlob = bufferToWav(loopBuffer);
+        if (loopBlobUrl) URL.revokeObjectURL(loopBlobUrl);
+        loopBlobUrl = URL.createObjectURL(wavBlob);
+        loopPlayer.src = loopBlobUrl;
+        loopPlayer.classList.remove('hidden');
+        resizeCanvases();
         drawPreviewWaveform();
         hideProgress();
     });
@@ -564,7 +583,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 if (crossfadeType === 'equalPower') {
                     fadeIn = Math.sqrt(t);
                     fadeOut = Math.sqrt(1 - t);
-                } else { // linear
+                } else {
                     fadeIn = t;
                     fadeOut = 1 - t;
                 }
@@ -625,6 +644,33 @@ window.addEventListener('DOMContentLoaded', () => {
         hideProgress();
     });
 
+    shareBtn.addEventListener('click', async () => {
+        if (!loopBuffer) {
+            showError('No loop available to share.');
+            return;
+        }
+        showProgress('Preparing to share...');
+        const wavBlob = bufferToWav(loopBuffer);
+        const fileName = audioInput.files[0].name.replace(/\.[^/.]+$/, '') + '_loop.wav';
+        const file = new File([wavBlob], fileName, { type: 'audio/wav' });
+        try {
+            if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    files: [file],
+                    title: 'WeaverLoops Seamless Loop',
+                    text: 'Share this audio loop created with WeaverLoops'
+                });
+            } else {
+                showError('Sharing is not supported on this device. Try downloading instead.');
+                console.warn('Web Share API not supported or cannot share files.');
+            }
+        } catch (err) {
+            showError('Failed to share: ' + err.message);
+            console.error('Share error:', err);
+        }
+        hideProgress();
+    });
+
     newAudioBtn.addEventListener('click', () => {
         window.location.reload();
     });
@@ -668,10 +714,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (!window.AudioContext && !window.webkitAudioContext) {
         showError('Your browser does not support Web Audio API.');
+        console.error('Web Audio API not supported.');
         return;
     }
 
     // Initialize
     resizeCanvases();
     uploadButton.disabled = true;
+    console.log('WeaverLoops 1.16 initialized. User Agent:', navigator.userAgent);
 });
