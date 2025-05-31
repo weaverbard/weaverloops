@@ -131,3 +131,25 @@ input[type="file"] {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+audio {
+    width: 100%;
+    margin: 10px 0;
+    background-color: #333;
+    border: 1px solid #555;
+    border-radius: 5px;
+}
+
+audio::-webkit-media-controls-panel {
+    background-color: #333;
+    color: #fff;
+}
+
+audio::-webkit-media-controls-play-button,
+audio::-webkit-media-controls-volume-slider,
+audio::-webkit-media-controls-seek-back-button,
+audio::-webkit-media-controls-seek-forward-button,
+audio::-webkit-media-controls-current-time-display,
+audio::-webkit-media-controls-time-remaining-display {
+    filter: invert(1) hue-rotate(180deg);
+}
