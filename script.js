@@ -59,13 +59,14 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Initialize state
     audioInput.value = '';
-    progress.classList.add('hidden');
+    progress.style.display = 'none';
     loopPlayer.classList.add('hidden');
+    console.log('WeaverLoops 1.17 initialized. User Agent:', navigator.userAgent);
 
     function showError(message) {
         error.textContent = message;
         error.classList.remove('hidden');
-        console.error(message);
+        console.error('Error:', message);
     }
 
     function clearError() {
@@ -74,13 +75,15 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     function showProgress(message) {
+        console.log('showProgress:', message);
         progressMessage.textContent = message;
-        progress.classList.remove('hidden');
+        progress.style.display = 'flex';
     }
 
     function hideProgress() {
+        console.log('hideProgress called');
         progressMessage.textContent = '';
-        progress.classList.add('hidden');
+        progress.style.display = 'none';
     }
 
     function resumeAudioContext() {
@@ -175,9 +178,16 @@ window.addEventListener('DOMContentLoaded', () => {
                 }
                 await resumeAudioContext();
                 const arrayBuffer = e.target.result;
-                audioBuffer = await audioContext.decodeAudioData(arrayBuffer).catch(err => {
+
+                // Add timeout for decodeAudioData
+                const decodePromise = audioContext.decodeAudioData(arrayBuffer);
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Audio decoding timed out after 10 seconds')), 10000);
+                });
+                audioBuffer = await Promise.race([decodePromise, timeoutPromise]).catch(err => {
                     throw new Error('decodeAudioData failed: ' + err.message);
                 });
+
                 if (audioBuffer.duration < 0.2) {
                     showError('Audio file is too short.');
                     audioBuffer = null;
@@ -198,14 +208,15 @@ window.addEventListener('DOMContentLoaded', () => {
                 showError('Failed to load audio: ' + err.message);
                 console.error('Audio loading error:', err);
                 console.log('User Agent:', navigator.userAgent);
-                console.log('File type:', file.type, 'Size:', file.size);
+                console.log('File type:', file.type, 'Size:', file.size, 'Name:', file.name);
                 hideProgress();
             }
         };
         reader.onerror = () => {
             showError('Error reading file.');
-            console.error('FileReader error');
+            console.error('FileReader error:', reader.error);
             console.log('User Agent:', navigator.userAgent);
+            console.log('File type:', file.type, 'Size:', file.size, 'Name:', file.name);
             hideProgress();
         };
         reader.readAsArrayBuffer(file);
@@ -721,5 +732,4 @@ window.addEventListener('DOMContentLoaded', () => {
     // Initialize
     resizeCanvases();
     uploadButton.disabled = true;
-    console.log('WeaverLoops 1.16 initialized. User Agent:', navigator.userAgent);
 });
