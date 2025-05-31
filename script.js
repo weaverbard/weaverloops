@@ -61,7 +61,7 @@ window.addEventListener('DOMContentLoaded', () => {
     audioInput.value = '';
     progress.style.display = 'none';
     loopPlayer.classList.add('hidden');
-    console.log('WeaverLoops 1.18 initialized. User Agent:', navigator.userAgent);
+    console.log('WeaverLoops 1.17 initialized. User Agent:', navigator.userAgent);
 
     function showError(message) {
         error.textContent = message;
@@ -163,68 +163,14 @@ window.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Validate file type
-        const validTypes = ['audio/wav', 'audio/mpeg', 'audio/aiff', 'audio/x-aiff'];
-        if (!validTypes.includes(file.type)) {
-            showError('Invalid file format. Please use WAV, MP3, or AIFF.');
-            console.log('Invalid file type:', file.type);
-            return;
-        }
-
         if (file.size > 100 * 1024 * 1024) {
             showError('File too large. Maximum size is 100MB.');
             return;
         }
 
         showProgress('Loading audio...');
-        console.log('Upload started. File:', file.name, 'Type:', file.type, 'Size:', file.size);
-
-        // Fallback decoding for MP3 on older Safari
-        async function decodeAudio(arrayBuffer) {
-            try {
-                const decodePromise = audioContext.decodeAudioData(arrayBuffer);
-                const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('Audio decoding timed out after 10 seconds')), 10000);
-                });
-                return await Promise.race([decodePromise, timeoutPromise]);
-            } catch (err) {
-                console.warn('decodeAudioData failed:', err.message);
-                if (file.type === 'audio/mpeg') {
-                    console.log('Attempting fallback decoding for MP3...');
-                    return new Promise((resolve, reject) => {
-                        const audio = new Audio();
-                        audio.src = URL.createObjectURL(new Blob([arrayBuffer], { type: 'audio/mpeg' }));
-                        audio.oncanplaythrough = async () => {
-                            try {
-                                const response = await fetch(audio.src);
-                                const arrayBuffer = await response.arrayBuffer();
-                                const buffer = await audioContext.decodeAudioData(arrayBuffer);
-                                URL.revokeObjectURL(audio.src);
-                                resolve(buffer);
-                            } catch (e) {
-                                reject(e);
-                            }
-                        };
-                        audio.onerror = () => {
-                            URL.revokeObjectURL(audio.src);
-                            reject(new Error('Fallback decoding failed'));
-                        };
-                    });
-                }
-                throw err;
-            }
-        }
-
         const reader = new FileReader();
-        const readTimeout = setTimeout(() => {
-            reader.abort();
-            showError('File reading timed out after 5 seconds.');
-            console.error('FileReader timeout');
-            hideProgress();
-        }, 5000);
-
         reader.onload = async (e) => {
-            clearTimeout(readTimeout);
             try {
                 if (!audioContext) {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -232,9 +178,16 @@ window.addEventListener('DOMContentLoaded', () => {
                 }
                 await resumeAudioContext();
                 const arrayBuffer = e.target.result;
-                console.log('FileReader success. ArrayBuffer size:', arrayBuffer.byteLength);
 
-                audioBuffer = await decodeAudio(arrayBuffer);
+                // Add timeout for decodeAudioData
+                const decodePromise = audioContext.decodeAudioData(arrayBuffer);
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Audio decoding timed out after 10 seconds')), 10000);
+                });
+                audioBuffer = await Promise.race([decodePromise, timeoutPromise]).catch(err => {
+                    throw new Error('decodeAudioData failed: ' + err.message);
+                });
+
                 if (audioBuffer.duration < 0.2) {
                     showError('Audio file is too short.');
                     audioBuffer = null;
@@ -249,27 +202,23 @@ window.addEventListener('DOMContentLoaded', () => {
                 for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
                     originalBuffer.getChannelData(channel).set(audioBuffer.getChannelData(channel));
                 }
-                console.log('Audio decoded. Duration:', audioBuffer.duration, 'Channels:', audioBuffer.numberOfChannels);
                 resetToEditState();
                 hideProgress();
             } catch (err) {
                 showError('Failed to load audio: ' + err.message);
                 console.error('Audio loading error:', err);
                 console.log('User Agent:', navigator.userAgent);
-                console.log('File name:', file.name, 'Type:', file.type, 'Size:', file.size);
+                console.log('File type:', file.type, 'Size:', file.size, 'Name:', file.name);
                 hideProgress();
             }
         };
-
         reader.onerror = () => {
-            clearTimeout(readTimeout);
-            showError('Error reading file: ' + (reader.error ? reader.error.message : 'Unknown error'));
+            showError('Error reading file.');
             console.error('FileReader error:', reader.error);
             console.log('User Agent:', navigator.userAgent);
-            console.log('File name:', file.name, 'Type:', file.type, 'Size:', file.size);
+            console.log('File type:', file.type, 'Size:', file.size, 'Name:', file.name);
             hideProgress();
         };
-
         reader.readAsArrayBuffer(file);
     });
 
@@ -585,7 +534,7 @@ window.addEventListener('DOMContentLoaded', () => {
             previewIsPlaying = false;
         }
         const crossfadeDuration = parseFloat(crossfadeSelect.value);
-        const previewStart = Math.max(0, loopBuffer.duration - crossfadeDuration);
+        const previewStart = Math.max(0, loopBuffer.duration - crossfadeDuration - 5);
         previewPlayhead = previewStart;
         previewPlayheadSlider.value = previewPlayhead;
         previewPlayheadTime.textContent = previewPlayhead.toFixed(2) + 's';
@@ -620,10 +569,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
     async function createLoopBuffer(crossfadeDuration) {
         const sampleRate = audioBuffer.sampleRate;
-        const crossfadeSamples Steinberg = Math.floor(crossfadeDuration * sampleRate);
+        const crossfadeSamples = Math.floor(crossfadeDuration * sampleRate);
         const newLength = audioBuffer.length - crossfadeSamples;
         if (newLength <= 0) {
-            showError('Crossfade duration too long for the audio length.');
+            showError('Crossfade duration is too long for the audio length.');
             return null;
         }
         const loopBuffer = audioContext.createBuffer(
@@ -639,7 +588,7 @@ window.addEventListener('DOMContentLoaded', () => {
             for (let i = 0; i < newLength; i++) {
                 outputData[i] = inputData[i + crossfadeSamples];
             }
-            for (let j = 0; j < i < crossfadeSamples; i++) {
+            for (let i = 0; i < crossfadeSamples; i++) {
                 const t = i / crossfadeSamples;
                 let fadeIn, fadeOut;
                 if (crossfadeType === 'equalPower') {
@@ -665,7 +614,7 @@ window.addEventListener('DOMContentLoaded', () => {
             return;
         }
         showProgress('Exporting loop...');
-        const loop = await createLoopBuffer(crossfadeDuration);
+        const loopBuffer = await createLoopBuffer(crossfadeDuration);
         if (!loopBuffer) {
             showError('Failed to export loop.');
             hideProgress();
@@ -695,7 +644,7 @@ window.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             showError('Failed to save file. Using default download.');
-            console.error('Export error:', err.message);
+            console.error('Export error:', err);
             const url = URL.createObjectURL(wavBlob);
             const a = document.createElement('a');
             a.href = url;
